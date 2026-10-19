@@ -3,6 +3,12 @@
 
 
 
-void DataServer::start( Configuration const& conf ){
-    _conf = conf;
+//
+namespace{
+
+}
+
+//
+void DataServer::HandleRequest( std::string const& sApiCall ){
+
 }

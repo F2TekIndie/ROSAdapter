@@ -22,9 +22,15 @@ namespace{
 int main(int argc, char* argv[]){
     std::cout << "I can start'" << std::endl;
     // Parse commandline args
+    if ( argc != 2 ){
+        std::cout << "Wrong number of commandline arguments." << std::endl;
+        return -1;
+    }
+    // 
+    rclcpp::init( argc, argv );
     ::signal( SIGINT, signalExitHandler );
     // Load configuration
-    std::string sConfigName;
+    std::string sConfigName = argv[1];
     Configuration conf = Configuration::LoadConfig( sConfigName );
     // Start command server => Starts its own thread
     CmdServer _cmdServer;
@@ -35,8 +41,17 @@ int main(int argc, char* argv[]){
     
     // Loop until command server quits or sighandler is called
     while ( !_cmdServer.exit() && !_exitAdapter ){
-        // Main thread should be idle
-        sleep( 1 );
+        std::cout << std::endl << "Enter command: ";
+        //
+        std::string sCmd;
+        std::cin >> sCmd;
+        //
+        _cmdServer.HandleRequest( sCmd );
     }
+    //
+    _dataServer.stop();
+    _cmdServer.stop();
+    //
+    rclcpp::shutdown();
     return 0;
 }

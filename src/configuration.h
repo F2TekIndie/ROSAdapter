@@ -8,10 +8,14 @@
 
 
 //
-class Configuration{
-public:
+struct Configuration{
+    /*
+    */
     static Configuration LoadConfig( std::string const& sPath );
 
-private:
-    std::vector< std::string > topics_;
+    //
+    std::vector< std::string > _topics = {};
+    //
+    std::tuple< std::string, std::string > _cmdServerConnection = {"localhost","556"};
+    std::tuple< std::string, std::string > _dataServerConnection = {"localhost","557"};
 };

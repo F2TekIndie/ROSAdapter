@@ -14,6 +14,7 @@ add_executable(rosadapter
     src/configuration.h src/configuration.cpp
     src/cmdServer.h src/cmdServer.cpp
     src/dataServer.h src/dataServer.cpp
+    src/server.h
     )
 
 target_include_directories(rosadapter PRIVATE

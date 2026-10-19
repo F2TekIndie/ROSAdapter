@@ -1,23 +1,23 @@
 
 #pragma once
 
-#include <boost/asio.hpp>
-#include "configuration.h"
+#include "server.h"
 
 
 
-class CmdServer{
+class CmdServer : public Server<CmdServer>{
 public:
     CmdServer() = default;
     ~CmdServer() = default;
     CmdServer(const CmdServer& rhs) = delete;
-    
-    //
-    void start( Configuration const& conf );
     //
     bool exit() const;
+    //
+    void HandleRequest( std::string const& sApiCall );
 
 private:
-    Configuration   _conf = {};
+    //
+    void TopicsQuery();
+    //
     bool            _exit = {false};
 };

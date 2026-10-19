@@ -1,21 +1,17 @@
 
 #pragma once
 
-#include <boost/asio.hpp>
-#include "configuration.h"
+#include "server.h"
 
 
 
-class DataServer{
+class DataServer : public Server<DataServer> {
 public:
     DataServer() = default;
     ~DataServer() = default;
     DataServer(const DataServer& rhs) = delete;
-
     //
-    void start( Configuration const& conf );
+    void HandleRequest( std::string const& sApiCall );
 
 private:
-    Configuration _conf = {};
-
 };
