@@ -8,6 +8,9 @@ set(THIRD_PARTY_ROOT "/home/f2tek/SwDev" CACHE PATH "Root of third-party librari
 
 find_package(Boost REQUIRED COMPONENTS system)
 find_package(Threads REQUIRED)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_executable(rosadapter
     src/main.cpp
@@ -15,7 +18,15 @@ add_executable(rosadapter
     src/cmdServer.h src/cmdServer.cpp
     src/dataServer.h src/dataServer.cpp
     src/server.h
-    )
+)
+ament_target_dependencies(rosadapter
+    rclcpp std_msgs
+)
+
+target_link_libraries(rosadapter
+  Boost::system
+  Threads::Threads
+)
 
 target_include_directories(rosadapter PRIVATE
 	/opt/ros/jazzy/include/rcl
@@ -36,20 +47,14 @@ target_include_directories(rosadapter PRIVATE
     /opt/ros/jazzy/include/tracetools
     /opt/ros/jazzy/include/libstatistics_collector
     /opt/ros/jazzy/include/statistics_msgs
+    /opt/ros/jazzy/include/std_msgs
 )
 
 target_link_directories(rosadapter PRIVATE
 	/opt/ros/jazzy/lib
 )
 
-target_link_libraries(rosadapter PRIVATE
-	rclcpp rcutils
-        Boost::system
-        Threads::Threads
-)
-
 set_target_properties(rosadapter PROPERTIES
     BUILD_RPATH "/opt/ros/jazzy/lib"
     INSTALL_RPATH "/opt/ros/jazzy/lib"
 )
-
