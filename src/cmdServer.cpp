@@ -1,5 +1,7 @@
 
 #include "cmdServer.h"
+#include "apicall.h"
+#include "server.h"
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/int32.hpp>
@@ -60,14 +62,14 @@ bool CmdServer::exit() const{
     return _exit;
 }
 
-void CmdServer::HandleRequest( std::string const& sApiCall ){
-    if ( sApiCall == API_TOPICS_QUERY ){
-        TopicsQuery();
+void CmdServer::HandleRequest( apiCall call ){
+    if ( call._sCommand == API_TOPICS_QUERY ){
+        TopicsQuery( call );
     }
-    else if ( sApiCall == API_EXIT ){
+    else if ( call._sCommand == API_EXIT ){
         _exit = true;
     }
-    else if ( sApiCall == API_LIST ){
+    else if ( call._sCommand == API_LIST ){
         std::cout << API_EXIT << " | " << API_LIST << " | "<< API_TOPICS_QUERY << std::endl;
     }
     else{
@@ -77,19 +79,26 @@ void CmdServer::HandleRequest( std::string const& sApiCall ){
 
 /*
 */
-void CmdServer::TopicsQuery(){
+void CmdServer::TopicsQuery( apiCall call ){
     //
     rclcpp::Node testNode("topic_query_node");
     //
     std::map<std::string, std::vector<std::string> > topics = testNode.get_topic_names_and_types();
     //
-    for ( const auto& topic_it : topics ){
-        std::cout << "Topic:  " << topic_it.first;
-        std::cout << " | Type: ";
-        for ( const auto& type : topic_it.second ){
-            std::cout << type << " ";
+    if ( call._local ){
+        for ( const auto& topic_it : topics ){
+            std::cout << "Topic:  " << topic_it.first;
+            std::cout << " | Type: ";
+            for ( const auto& type : topic_it.second ){
+                std::cout << type << " ";
+            }
+            std::cout << std::endl;
         }
-        std::cout << std::endl;
+    }
+    else{
+        // Prepare response message
+        std::string sMessage = {"Just a dummy answer for now!"};
+        Server::sendMessage( *this, sMessage);
     }
 }
 //

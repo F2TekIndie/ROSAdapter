@@ -45,7 +45,7 @@ int main(int argc, char* argv[]){
         std::string sCmd;
         std::cin >> sCmd;
         //
-        _cmdServer.HandleRequest( sCmd );
+        _cmdServer.HandleRequest( {sCmd, true} );
     }
     //
     Server::stop( ctx );

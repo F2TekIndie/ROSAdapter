@@ -1,8 +1,10 @@
 
 #include "server.h"
 #include "cmdServer.h"
-#include <boost/asio/io_context.hpp>
+#include <iostream>
 #include <thread>
+#include <boost/asio/io_context.hpp>
+#include <boost/system/detail/error_code.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -19,9 +21,9 @@ namespace{
             boost::asio::streambuf buf;
             while (true) {
                 buf.consume(buf.size());
-                auto [ec, n] = co_await boost::asio::async_read_until(
-                    sock, buf, '\n', boost::asio::as_tuple(boost::asio::use_awaitable));
-                if (ec) break;
+                auto [ec, n] = co_await boost::asio::async_read_until( sock, buf, '\n', boost::asio::as_tuple(boost::asio::use_awaitable) );
+                if ( ec )
+                    break;
                 auto line = std::string(boost::asio::buffer_cast<const char*>(buf.data()), n);
                 co_await ch.async_send(boost::system::error_code{},std::move(line), boost::asio::use_awaitable);
             }
@@ -62,10 +64,25 @@ namespace{
         // Move to thread
         ctx.run();
     }
+    void receiveCommands( CmdServer& server ){
+        auto& cmdCh = server.cmdChannel();
+        cmdCh.async_receive(
+            [&](boost::system::error_code ec, std::string sMsg){
+                if ( !ec ){
+                    // Messages are terminated with new line.
+                    // Needs to be stripped for valid command.
+                    server.HandleRequest( {sMsg.substr(0, sMsg.size()-1), false} );
+                }
+                if ( !server.exit() ){
+                    receiveCommands( server );
+                }
+        });
+    }
 }
 
 namespace Server {
     std::jthread tWorker;
+    std::jthread tReceiverParser;
     //
     void start( boost::asio::io_context& ctx, Configuration const& conf, CmdServer& server ){
         // IP & PORT
@@ -74,6 +91,7 @@ namespace Server {
         boost::asio::co_spawn(ctx, std::move(listen), boost::asio::detached);
         
         tWorker = std::jthread( runAsioCommunication, std::ref(ctx ) );
+        tReceiverParser = std::jthread( receiveCommands, std::ref(server) );
     }
     //
     void stop( boost::asio::io_context& ctx ){
@@ -81,5 +99,15 @@ namespace Server {
         // Stop listening
         ctx.stop();
         tWorker.join();
+        tReceiverParser.join();
+    }
+    void sendMessage( CmdServer& server, std::string sMessage ){
+        auto& dataCh = server.dataChannel();
+        sMessage += "\n";
+        dataCh.async_send(boost::system::error_code {}, std::move(sMessage), [](boost::system::error_code ec){
+                if ( ec ){
+                    std::cout << "Error while sending message: " << ec << std::endl;
+                }
+        });
     }
 }

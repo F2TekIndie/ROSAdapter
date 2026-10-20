@@ -5,6 +5,8 @@
 #include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <map>
+#include "apicall.h"
+
 
 
 //
@@ -21,7 +23,7 @@ public:
     CmdServer(const CmdServer& rhs) = delete;
     //
     bool exit() const;
-    void HandleRequest( std::string const& sApiCall );
+    void HandleRequest( apiCall call );
     //
     void CreateSubscription( std::string sTopic, std::string sType );
     //
@@ -30,7 +32,7 @@ public:
 
 private:
     //
-    void TopicsQuery();
+    void TopicsQuery( apiCall call );
     //
     bool            _exit = {false};
     std::map< std::string, std::shared_ptr<Subscribtion> > _Subscribtions = {};
