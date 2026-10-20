@@ -1,39 +1,16 @@
 
 #pragma once
 
-#include <boost/asio.hpp>
 #include "configuration.h"
+#include <boost/asio/io_context.hpp>
 
 
 
-template<typename  T>
-class Server{
-public:
-    Server() = default;
-    virtual ~Server() = default;
-    //
-    void start( Configuration const& conf ){
-        _conf = conf;
-        // IP & PORT
-        // Start listening for connections
-    }
-    //
-    void stop(){
-        // Close connections
-        // Stop listening
-    }
-    //
-    void send(){
-        // 
-        ;
-    }
-    //
-    void receive(){
-        // Send input to _derived->HandleRequest
-        ;
-    }
+//
+class CmdServer;
 
-private:
-    Configuration _conf = {};
-    T* _derived = {(T*)this};
+//
+namespace Server{
+    void start( boost::asio::io_context& ctx, Configuration const& conf, CmdServer& server );
+    void stop( boost::asio::io_context& ctx );
 };

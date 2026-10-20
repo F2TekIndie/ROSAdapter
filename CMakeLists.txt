@@ -4,6 +4,7 @@ project(rosadapter VERSION 0.1 LANGUAGES CXX)
 
 #
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 20)
 set(THIRD_PARTY_ROOT "/home/f2tek/SwDev" CACHE PATH "Root of third-party libraries")
 
 find_package(Boost REQUIRED COMPONENTS system)
@@ -16,8 +17,7 @@ add_executable(rosadapter
     src/main.cpp
     src/configuration.h src/configuration.cpp
     src/cmdServer.h src/cmdServer.cpp
-    src/dataServer.h src/dataServer.cpp
-    src/server.h
+    src/server.h src/server.cpp
 )
 ament_target_dependencies(rosadapter
     rclcpp std_msgs

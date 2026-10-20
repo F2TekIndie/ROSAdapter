@@ -2,11 +2,12 @@
 
 #include <csignal>
 #include <iostream>
-#include <thread>
 #include <rclcpp/rclcpp.hpp>
+#include <boost/asio.hpp>
 #include "configuration.h"
 #include "cmdServer.h"
-#include "dataServer.h"
+#include "server.h"
+
 
 
 namespace{
@@ -29,15 +30,13 @@ int main(int argc, char* argv[]){
     // 
     rclcpp::init( argc, argv );
     ::signal( SIGINT, signalExitHandler );
+    boost::asio::io_context ctx;
     // Load configuration
     std::string sConfigName = argv[1];
     Configuration conf = Configuration::LoadConfig( sConfigName );
     // Start command server => Starts its own thread
-    CmdServer _cmdServer;
-    _cmdServer.start( conf );
-    // Start data server => Starts its own thread
-    DataServer _dataServer;
-    _dataServer.start( conf );
+    CmdServer _cmdServer( ctx );
+    Server::start( ctx, conf, _cmdServer );
     
     // Loop until command server quits or sighandler is called
     while ( !_cmdServer.exit() && !_exitAdapter ){
@@ -49,8 +48,7 @@ int main(int argc, char* argv[]){
         _cmdServer.HandleRequest( sCmd );
     }
     //
-    _dataServer.stop();
-    _cmdServer.stop();
+    Server::stop( ctx );
     //
     rclcpp::shutdown();
     return 0;
