@@ -97,7 +97,15 @@ void CmdServer::TopicsQuery( apiCall call ){
     }
     else{
         // Prepare response message
-        std::string sMessage = {"Just a dummy answer for now!"};
+        std::string sMessage = {call._sCommand + "||"};
+        for ( const auto& topic_it : topics ){
+            sMessage += topic_it.first + ":";
+            for ( const auto& type : topic_it.second ){
+                sMessage += type + "|";
+            }
+            sMessage += "|";
+        }
+        //
         Server::sendMessage( *this, sMessage);
     }
 }
