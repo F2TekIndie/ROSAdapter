@@ -7,6 +7,8 @@
 #include <std_msgs/msg/int32.hpp>
 #include <iostream>
 #include <map>
+#include "message.pb.h"
+#include "topicsRequest.pb.h"
 //
 using std::placeholders::_1;
 
@@ -63,17 +65,21 @@ bool CmdServer::exit() const{
 }
 
 void CmdServer::HandleRequest( apiCall call ){
-    if ( call._sCommand == API_TOPICS_QUERY ){
-        TopicsQuery( call );
+    robotics::Message message;
+    if ( !message.ParseFromString( call._sCommand ) ){
+        return;
     }
-    else if ( call._sCommand == API_EXIT ){
-        _exit = true;
-    }
-    else if ( call._sCommand == API_LIST ){
-        std::cout << API_EXIT << " | " << API_LIST << " | "<< API_TOPICS_QUERY << std::endl;
-    }
-    else{
-        std::cout << "Unknow command!" << std::endl;
+    //
+    switch( message.payload_case() ){
+        case robotics::Message::kTopicsRequest:
+            TopicsQuery( call );
+            break;
+        case robotics::Message::kExitRequest:
+            _exit = true;
+            break;
+        default:
+            std::cout << "Unknow command!" << std::endl;
+            break;
     }
 }
 
@@ -96,17 +102,21 @@ void CmdServer::TopicsQuery( apiCall call ){
         }
     }
     else{
+        robotics::Message message;
+        message.set_request_id( 1 );
+        auto* tpRes = message.mutable_topics_response();
         // Prepare response message
-        std::string sMessage = {call._sCommand + "||"};
         for ( const auto& topic_it : topics ){
-            sMessage += topic_it.first + ":";
+            auto* topic = tpRes->add_topics();
+            topic->set_name( topic_it.first );
             for ( const auto& type : topic_it.second ){
-                sMessage += type + "|";
+                topic->add_types( type );
             }
-            sMessage += "|";
         }
         //
-        Server::sendMessage( *this, sMessage);
+        std::string sMessage;
+        message.SerializeToString( &sMessage );
+        Server::sendMessage( *this, sMessage );
     }
 }
 //

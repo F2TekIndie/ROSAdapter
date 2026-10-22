@@ -13,6 +13,11 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 
+add_subdirectory(
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ROSData"
+    "${CMAKE_CURRENT_BINARY_DIR}/rosdata"
+)
+
 add_executable(rosadapter
     src/main.cpp
     src/configuration.h src/configuration.cpp
@@ -26,6 +31,7 @@ ament_target_dependencies(rosadapter
 target_link_libraries(rosadapter
   Boost::system
   Threads::Threads
+  rosdata
 )
 
 target_include_directories(rosadapter PRIVATE
