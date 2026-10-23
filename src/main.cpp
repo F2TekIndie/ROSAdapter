@@ -18,6 +18,7 @@
 #include "configuration.h"
 #include "cmdServer.h"
 #include "server.h"
+#include "message.pb.h"
 
 
 
@@ -56,7 +57,19 @@ namespace{
                 sCommand.pop_back();
             }
             if ( !sCommand.empty() ){
-                server.HandleRequest( {sCommand, true} );
+                //
+                robotics::Message msg;
+                msg.set_request_id( 99 );
+                if ( sCommand == "Exit" ){
+                    msg.mutable_exit_request();
+                }
+                else if ( sCommand == "TopicsQuery" ){
+                    msg.mutable_topics_request();
+                }
+                //
+                std::string sPrep;
+                msg.SerializeToString( &sPrep );
+                server.HandleRequest( {sPrep, true, 99} );
             }
         }
     }

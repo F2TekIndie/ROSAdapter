@@ -69,6 +69,7 @@ void CmdServer::HandleRequest( apiCall call ){
     if ( !message.ParseFromString( call._sCommand ) ){
         return;
     }
+    call._requestId = message.request_id();
     //
     switch( message.payload_case() ){
         case robotics::Message::kTopicsRequest:
@@ -103,7 +104,7 @@ void CmdServer::TopicsQuery( apiCall call ){
     }
     else{
         robotics::Message message;
-        message.set_request_id( 1 );
+        message.set_request_id( call._requestId );
         auto* tpRes = message.mutable_topics_response();
         // Prepare response message
         for ( const auto& topic_it : topics ){
