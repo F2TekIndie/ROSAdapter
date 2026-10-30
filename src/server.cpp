@@ -35,7 +35,6 @@ namespace{
                 co_await ch.async_send( boost::system::error_code{}, std::move(sPayload), boost::asio::use_awaitable );
             }
         } catch (const std::exception&) { /* connection closed */ }
-        ch.close(); // signal writer to stop
     }
 
     // --- Writer: pulls from channel, pushes to socket ---
@@ -69,16 +68,17 @@ namespace{
         auto& dataCh = server.dataChannel();
 
         // Run reader and writer in parallel; await BOTH completing
-        co_await (reader(socket, cmdCh) && writer(socket, dataCh));
-
-        socket.close();
+        co_await (reader(socket, cmdCh) || writer(socket, dataCh));
+        boost::system::error_code ignored;
+        socket.shutdown( boost::asio::ip::tcp::socket::shutdown_both, ignored );
+        socket.close( ignored );
     }
 
     boost::asio::awaitable<void> listener(boost::asio::io_context& ctx, unsigned short port, CmdServer& server ) {
         boost::asio::ip::tcp::acceptor acc(ctx, {boost::asio::ip::tcp::v4(), port});
         while (true) {
-            boost::asio::ip::tcp::socket socket = co_await acc.async_accept(boost::asio::use_awaitable);
-            boost::asio::co_spawn(ctx, session(std::move(socket), server), boost::asio::detached);
+            auto socket = co_await acc.async_accept(boost::asio::use_awaitable);
+            co_await session( std::move(socket), server );
         }
     }
 
