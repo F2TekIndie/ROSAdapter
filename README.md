@@ -1,75 +1,68 @@
 # ROSAdapter
 
-**Status: proof-of-concept prototype.** This project is for experimentation and
-learning. Features are incomplete, interfaces may change, and it is not
-production-ready.
-
-C++ bridge between a ROS 2 environment and the ROSVis desktop prototype.
-It queries the ROS graph and exchanges Protocol Buffer messages over TCP.
-The intended deployment is one ROSAdapter connected to one ROSVis client.
-
-## Current functionality
-
-- Query ROS topic names and their message types.
-- Return topic queries over TCP, preserving the request ID.
-- Accept local `TopicsQuery` and `Exit` console commands.
-- Accept a remote exit request.
-
-Subscription helpers exist for string and Int32 messages, but subscription
-commands and continuous topic-data forwarding are not implemented end to end.
-
-## Related projects
-
-- [ROSVis](../ROSVis/README.md): Qt/QML desktop client.
-- [ROSData](../ROSData/README.md): shared protocol definitions.
-
-Keep the repositories alongside one another; the application builds include
-`../ROSData` directly:
-
-```text
-ROS2Visualizer/
-├── ROSAdapter/
-├── ROSData/
-└── ROSVis/
-```
-
-## Dependencies and build
-
-- CMake 3.16 or later and a C++20 compiler.
-- ROS 2 Jazzy with `ament_cmake`, `rclcpp`, and `std_msgs`.
-- Boost.System with Asio coroutine and experimental channel support.
-- Protocol Buffers compiler (`protoc`) and C++ development library.
-- Platform threading support.
-
-The current build contains ROS paths under `/opt/ros/jazzy`. Console input uses
-POSIX file descriptors, making Linux the current development target.
-
-From this repository, in your ROS development environment:
+ROS 2 gRPC server for ROSVis. Requires C++20, ROS 2 Jazzy (ament_cmake,
+rclcpp, std_msgs), protobuf and gRPC C++ development tools.
 
 ```sh
 source /opt/ros/jazzy/setup.bash
-cmake -S . -B build/local -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build/local
 cmake --build build/local --parallel
-./build/local/rosadapter config.json
+./build/local/rosadapter
+# Optional address override:
+./build/local/rosadapter --ros-args -p grpc_address:=127.0.0.1:8081
 ```
 
-Exactly one configuration-path argument is currently required. The loader is a
-stub and ignores that path; a configuration file does not need to exist yet.
+Defaults to 127.0.0.1:8080 using insecure gRPC credentials. Stop with Ctrl+C.
+A long-lived ROS node spins alongside the gRPC server. A mutex protects the
+in-memory topic registry, subscriptions and latest protobuf samples.
 
-## Connection and protocol
+ListTopics refreshes discovery while retaining active subscriptions, even if a
+publisher disappears. Subscribe requires the full advertised ROS type name;
+the shared ROSData bundle currently covers 143 standard Jazzy message types.
+Conversion uses ROS runtime introspection and generated protobuf definitions.
+Types without a generated schema return UNIMPLEMENTED; unavailable or mismatched
+runtime type support returns FAILED_PRECONDITION. Repeating Subscribe for the same type
+is idempotent; changing its type requires Unsubscribe first.
 
-The server listens on IPv4 port **8080**, on all local interfaces. Start it
-before ROSVis. Stop any old ROSAdapter process using the port before launching
-another instance.
+Subscriptions belong to the adapter, persist across client disconnects and are
+shared by clients. Unsubscribe removes the subscription and cached sample;
+repeating it for a known topic succeeds. A new subscription starts at sequence
+zero. GetLatest reports FAILED_PRECONDITION for unsubscribed topics. Before the
+first sample its payload is unset. Only the latest sample is retained, without
+history or server streaming. QoS is volatile, best effort, keep-last 1, allowing
+both reliable and best-effort publishers. Discovery may initially be incomplete.
 
-Frames contain a four-byte unsigned payload length in big-endian order,
-followed by a serialized `robotics::Message`. The payload limit is 16 MiB.
-There is no newline separator for network messages.
+See ../ROSData/adapter.proto for the complete wire contract. The old custom TCP
+framing, console commands and remote process-exit operation have been removed.
 
-## Prototype limitations
+## Finding gRPC
 
-Configuration, reconnect handling, error reporting, and subscription execution
-still need work. Topic queries create a temporary ROS node, so results may be
-incomplete while discovery is taking place. Transport authentication and
-encryption are not implemented. Use this prototype in a trusted development
-network. No automated test suite is provided.
+On Ubuntu/Debian install the development libraries and code generator:
+
+```sh
+sudo apt install libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev protobuf-compiler pkg-config
+```
+
+CMake first tries the gRPC CMake package, then `pkg-config grpc++`. For a custom
+installation, pass `-DCMAKE_PREFIX_PATH=/path/to/install` or
+`-DgRPC_DIR=/path/to/directory/containing/gRPCConfig.cmake`. The code generator
+can also be specified with `-DGRPC_CPP_PLUGIN_EXECUTABLE=/path/to/grpc_cpp_plugin`.
+Re-run CMake after installing dependencies.
+
+## Converter tests
+
+```sh
+source /opt/ros/jazzy/setup.bash
+cmake -S . -B build/local -DBUILD_TESTING=ON
+cmake --build build/local --parallel
+ctest --test-dir build/local --output-on-failure
+```
+
+Tests exercise all 143 bundled types, nonzero image/point-cloud/array data,
+conversion limits and live ROS-to-gRPC subscription/cache replacement. The live
+test uses an isolated ROS domain and a temporary localhost gRPC port.
+
+ListSupportedTypes returns bundled schema names. ListTopics marks advertised
+supported_types. GetSchema exports protobuf descriptors for a requested ROS type.
+LatestData now contains a protobuf Any. Failed conversions expose conversion_error
+and retain the last valid payload. See ../ROSData/README.md for custom packages.

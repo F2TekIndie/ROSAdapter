@@ -4,14 +4,14 @@ project(rosadapter VERSION 0.1 LANGUAGES CXX)
 
 #
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 20)
-set(THIRD_PARTY_ROOT "/home/f2tek/SwDev" CACHE PATH "Root of third-party libraries")
+set(CMAKE_CXX_STANDARD 23)
 
-find_package(Boost REQUIRED COMPONENTS system)
-find_package(Threads REQUIRED)
+#
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+
+set(ROSDATA_WITH_ROS ON)
 
 add_subdirectory(
     "${CMAKE_CURRENT_SOURCE_DIR}/../ROSData"
@@ -20,47 +20,39 @@ add_subdirectory(
 
 add_executable(rosadapter
     src/main.cpp
-    src/configuration.h src/configuration.cpp
-    src/cmdServer.h src/cmdServer.cpp
     src/server.h src/server.cpp
 )
+
 ament_target_dependencies(rosadapter
     rclcpp std_msgs
 )
 
 target_link_libraries(rosadapter
-  Boost::system
-  Threads::Threads
-  rosdata
+    rosdata_ros
 )
 
-target_include_directories(rosadapter PRIVATE
-	/opt/ros/jazzy/include/rcl
-    /opt/ros/jazzy/include/rmw
-    /opt/ros/jazzy/include/rcl_interfaces
-    /opt/ros/jazzy/include/rclcpp
-    /opt/ros/jazzy/include/rcutils
-    /opt/ros/jazzy/include/rcpputils
-    /opt/ros/jazzy/include/rosidl_runtime_cpp
-    /opt/ros/jazzy/include/rosidl_runtime_c
-    /opt/ros/jazzy/include/rosidl_typesupport_interface
-    /opt/ros/jazzy/include/rosidl_dynamic_typesupport
-    /opt/ros/jazzy/include/rosidl_typesupport_introspection_cpp
-    /opt/ros/jazzy/include/type_description_interfaces
-    /opt/ros/jazzy/include/service_msgs
-    /opt/ros/jazzy/include/builtin_interfaces
-    /opt/ros/jazzy/include/rcl_yaml_param_parser
-    /opt/ros/jazzy/include/tracetools
-    /opt/ros/jazzy/include/libstatistics_collector
-    /opt/ros/jazzy/include/statistics_msgs
-    /opt/ros/jazzy/include/std_msgs
-)
+include(CTest)
+if(BUILD_TESTING)
+    find_package(sensor_msgs REQUIRED)
+    find_package(nav_msgs REQUIRED)
+    add_executable(rosdata_converter_test
+        tests/converter.cpp
+    )
+    target_link_libraries(rosdata_converter_test rosdata_ros)
+    ament_target_dependencies(rosdata_converter_test
+        rclcpp std_msgs sensor_msgs nav_msgs rosidl_typesupport_introspection_cpp
+    )
+    add_test(NAME rosdata_converter COMMAND rosdata_converter_test)
+    add_test(NAME rosdata_generator COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ROSData/tools/test_generator.py")
 
-target_link_directories(rosadapter PRIVATE
-	/opt/ros/jazzy/lib
-)
-
-set_target_properties(rosadapter PROPERTIES
-    BUILD_RPATH "/opt/ros/jazzy/lib"
-    INSTALL_RPATH "/opt/ros/jazzy/lib"
-)
+    add_executable(rosadapter_server_test
+        tests/server.cpp
+        src/server.cpp
+    )
+    target_include_directories(rosadapter_server_test PRIVATE src)
+    target_link_libraries(rosadapter_server_test rosdata_ros)
+    ament_target_dependencies(rosadapter_server_test rclcpp sensor_msgs)
+    add_test(NAME rosadapter_server COMMAND rosadapter_server_test)
+    set_tests_properties(rosadapter_server PROPERTIES TIMEOUT 30 ENVIRONMENT "ROS_DOMAIN_ID=199")
+endif()

@@ -1,132 +1,181 @@
-
 #include "server.h"
-#include "cmdServer.h"
-#include <iostream>
-#include <stdexcept>
-#include <thread>
-#include <boost/asio/io_context.hpp>
-#include <boost/system/detail/error_code.hpp>
-#include <boost/asio.hpp>
-#include <boost/asio/experimental/concurrent_channel.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <algorithm>
+#include <chrono>
 
 
 
 //
 namespace{
-    using namespace boost::asio::experimental::awaitable_operators;
-
-    // --- Reader: pulls from socket, pushes to channel ---
-    boost::asio::awaitable<void> reader(boost::asio::ip::tcp::socket& sock, MyChannelType& ch) {
-        try {
-            while (true) {
-                std::array<unsigned char, 4> header;
-                co_await boost::asio::async_read( sock, boost::asio::buffer(header), boost::asio::use_awaitable );
-                //
-                std::uint32_t size = (std::uint32_t(header[0])<<24) | (std::uint32_t(header[1])<<16) | (std::uint32_t(header[2])<<8) | std::uint32_t(header[3]);
-                constexpr std::uint32_t maxSize = 16 * 1024 * 1024;
-                if ( size > maxSize ){
-                    throw std::runtime_error("Message to long");
-                }
-                //
-                std::string sPayload(size,'\0');
-                co_await boost::asio::async_read( sock, boost::asio::buffer(sPayload), boost::asio::use_awaitable );
-                //
-                co_await ch.async_send( boost::system::error_code{}, std::move(sPayload), boost::asio::use_awaitable );
-            }
-        } catch (const std::exception&) { /* connection closed */ }
+    template <typename EntryType>
+    void update( std::mutex& mutex, const std::weak_ptr<EntryType>& weak, const rosdata::Converter& converter, const rclcpp::SerializedMessage& message ){
+        google::protobuf::Any payload;
+        std::string error;
+        try{
+            payload = converter.toProtobuf( message );
+        }
+        catch ( const std::exception& exception ){
+            error = exception.what();
+        }
+        // Conversion is outside the registry lock. Discard stale callbacks after unsubscribe.
+        std::lock_guard lock( mutex );
+        auto entry = weak.lock();
+        if ( !entry || !entry->subscription ){
+            return;
+        }
+        auto& latest = entry->latest;
+        latest.set_conversion_error( error );
+        if ( !error.empty() ){
+            return;
+        }
+        *latest.mutable_payload() = std::move( payload );
+        latest.set_sequence( latest.sequence() + 1 );
+        latest.set_received_unix_nanoseconds( std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::system_clock::now().time_since_epoch() )
+                .count() );
     }
+} // namespace
 
-    // --- Writer: pulls from channel, pushes to socket ---
-    boost::asio::awaitable<void> writer(boost::asio::ip::tcp::socket& sock, MyChannelType& ch) {
-        try {
-            while (true){
-                auto msg = co_await ch.async_receive(boost::asio::use_awaitable);
-                constexpr std::size_t maxSize = 16*1024*1024;
-                if ( msg.size() > maxSize ){
-                    throw std::runtime_error("Message to long");
-                }
-                auto size = static_cast<std::uint32_t>(msg.size());
-                std::array<unsigned char, 4> header{
-                    static_cast<unsigned char>(size >> 24),
-                    static_cast<unsigned char>(size >> 16),
-                    static_cast<unsigned char>(size >> 8),
-                    static_cast<unsigned char>(size)
-                };
-                std::array<boost::asio::const_buffer, 2> buffers{
-                    boost::asio::buffer(header),
-                    boost::asio::buffer(msg)
-                };
-                // Transform or just echo
-                co_await boost::asio::async_write(sock, buffers, boost::asio::use_awaitable);
-            }
-        } catch (const std::exception&) { /* connection closed */ }
-    }
+//
+AdapterService::AdapterService( rclcpp::Node::SharedPtr node )
+    :node_( std::move( node ) )
+{
+}
 
-    boost::asio::awaitable<void> session(boost::asio::ip::tcp::socket socket, CmdServer& server ) {
-        auto& cmdCh = server.cmdChannel();
-        auto& dataCh = server.dataChannel();
-
-        // Run reader and writer in parallel; await BOTH completing
-        co_await (reader(socket, cmdCh) || writer(socket, dataCh));
-        boost::system::error_code ignored;
-        socket.shutdown( boost::asio::ip::tcp::socket::shutdown_both, ignored );
-        socket.close( ignored );
-    }
-
-    boost::asio::awaitable<void> listener(boost::asio::io_context& ctx, unsigned short port, CmdServer& server ) {
-        boost::asio::ip::tcp::acceptor acc(ctx, {boost::asio::ip::tcp::v4(), port});
-        while (true) {
-            auto socket = co_await acc.async_accept(boost::asio::use_awaitable);
-            co_await session( std::move(socket), server );
+//
+void AdapterService::refreshTopics(){
+    const auto discovered = node_->get_topic_names_and_types();
+    const auto supported = schemas_.supportedTypes();
+    for ( auto it = topics_.begin(); it != topics_.end(); ){
+        if ( !it->second->subscription && !discovered.contains( it->first ) ){
+            it = topics_.erase( it );
+        }
+        else{
+            it->second->topic.clear_supported_types();
+            it->second->topic.clear_types();
+            ++it;
         }
     }
-
-    void runAsioCommunication( boost::asio::io_context& ctx ){
-        // Move to thread
-        ctx.run();
-    }
-    void receiveCommands( CmdServer& server ){
-        auto& cmdCh = server.cmdChannel();
-        cmdCh.async_receive(
-            [&](boost::system::error_code ec, std::string sMsg){
-                if ( !ec ){
-                    server.HandleRequest( {sMsg, false} );
-                }
-                if ( !server.exit() ){
-                    receiveCommands( server );
-                }
-        });
+    for ( const auto& [name, types] : discovered ){
+        auto& entry = topics_[name];
+        if ( !entry ){
+            entry = std::make_shared<Entry>();
+        }
+        entry->topic.set_name( name );
+        for ( const auto& type : types ){
+            entry->topic.add_types( type );
+            if ( std::find( supported.begin(), supported.end(), type ) != supported.end() ){
+                entry->topic.add_supported_types( type );
+            }
+        }
     }
 }
 
-namespace Server {
-    std::jthread tWorker;
-    std::jthread tReceiverParser;
-    //
-    void start( boost::asio::io_context& ctx, Configuration const& conf, CmdServer& server ){
-        // IP & PORT
-        // Start listening for connections
-        auto listen = listener(ctx, 8080, server);
-        boost::asio::co_spawn(ctx, std::move(listen), boost::asio::detached);
-        
-        tWorker = std::jthread( runAsioCommunication, std::ref(ctx ) );
-        tReceiverParser = std::jthread( receiveCommands, std::ref(server) );
+//
+grpc::Status AdapterService::ListTopics( grpc::ServerContext*, const robotics::ListTopicsRequest*, robotics::ListTopicsResponse* response ){
+    std::lock_guard lock( mutex_ );
+    refreshTopics();
+    for ( const auto& [name, entry] : topics_ ){
+        *response->add_topics() = entry->topic;
     }
-    //
-    void stop( boost::asio::io_context& ctx ){
-        // Close connections
-        // Stop listening
-        ctx.stop();
-        tWorker.join();
-        tReceiverParser.join();
+    return grpc::Status::OK;
+}
+
+//
+grpc::Status AdapterService::Subscribe( grpc::ServerContext*, const robotics::SubscribeRequest* request, robotics::Topic* response ){
+    if ( request->topic().empty() || request->type().empty() ){
+        return { grpc::StatusCode::INVALID_ARGUMENT, "Topic and type are required" };
     }
-    void sendMessage( CmdServer& server, std::string sMessage ){
-        auto& dataCh = server.dataChannel();
-        dataCh.async_send(boost::system::error_code {}, std::move(sMessage), [](boost::system::error_code ec){
-                if ( ec ){
-                    std::cout << "Error while sending message: " << ec << std::endl;
-                }
-        });
+    std::lock_guard lock( mutex_ );
+    refreshTopics();
+    auto found = topics_.find( request->topic() );
+    if ( found == topics_.end() ){
+        return { grpc::StatusCode::NOT_FOUND, "Topic is not advertised" };
+    }
+    auto& entry = found->second;
+    if ( entry->subscription ){
+        if ( entry->topic.subscribed_type() != request->type() ){
+            return { grpc::StatusCode::FAILED_PRECONDITION, "Already subscribed with another type" };
+        }
+        *response = entry->topic;
+        return grpc::Status::OK;
+    }
+    const auto& types = entry->topic.types();
+    if ( std::find( types.begin(), types.end(), request->type() ) == types.end() ){
+        return { grpc::StatusCode::INVALID_ARGUMENT, "Type is not advertised for this topic" };
+    }
+    // Weak ownership prevents a cycle and rejects callbacks from a removed subscription.
+    std::weak_ptr<Entry> weak = entry;
+
+    const auto supported = schemas_.supportedTypes();
+    if ( std::find( supported.begin(), supported.end(), request->type() ) == supported.end() ){
+        return { grpc::StatusCode::UNIMPLEMENTED, "No generated protobuf schema for this ROS type" };
+    }
+    try{
+        auto converter = std::make_shared<rosdata::Converter>( request->type(), schemas_ );
+        entry->subscription = node_->create_generic_subscription( request->topic(), request->type(), rclcpp::SensorDataQoS().keep_last( 1 ),
+            [this, weak, converter]( std::shared_ptr<rclcpp::SerializedMessage> message ){
+            update( mutex_, weak, *converter, *message );
+        } );
+        entry->converter = std::move( converter );
+    }
+    catch ( const std::exception& error ){
+        return { grpc::StatusCode::FAILED_PRECONDITION, error.what() };
+    }
+    entry->topic.set_subscribed( true );
+    entry->topic.set_subscribed_type( request->type() );
+    entry->latest.set_topic( request->topic() );
+    entry->latest.set_type( request->type() );
+    *response = entry->topic;
+    return grpc::Status::OK;
+}
+
+//
+grpc::Status AdapterService::Unsubscribe( grpc::ServerContext*, const robotics::TopicRequest* request, robotics::Topic* response ){
+    std::lock_guard lock( mutex_ );
+    auto found = topics_.find( request->topic() );
+    if ( found == topics_.end() ){
+        return { grpc::StatusCode::NOT_FOUND, "Unknown topic" };
+    }
+    auto replacement = std::make_shared<Entry>();
+    replacement->topic = found->second->topic;
+    replacement->topic.set_subscribed( false );
+    replacement->topic.clear_subscribed_type();
+    found->second = replacement;
+    *response = replacement->topic;
+    return grpc::Status::OK;
+}
+
+//
+grpc::Status AdapterService::GetLatest( grpc::ServerContext*, const robotics::TopicRequest* request, robotics::LatestData* response ){
+    std::lock_guard lock( mutex_ );
+    auto found = topics_.find( request->topic() );
+    if ( found == topics_.end() ){
+        return { grpc::StatusCode::NOT_FOUND, "Unknown topic" };
+    }
+    if ( !found->second->subscription ){
+        return { grpc::StatusCode::FAILED_PRECONDITION, "Topic is not subscribed" };
+    }
+    *response = found->second->latest;
+    return grpc::Status::OK;
+}
+
+//
+grpc::Status AdapterService::ListSupportedTypes( grpc::ServerContext*, const robotics::ListSupportedTypesRequest*, robotics::ListSupportedTypesResponse* response ){
+    for ( const auto& type : schemas_.supportedTypes() ){
+        response->add_types( type );
+    }
+    return grpc::Status::OK;
+}
+
+//
+grpc::Status AdapterService::GetSchema( grpc::ServerContext*, const robotics::SchemaRequest* request, robotics::SchemaResponse* response ){
+    try{
+        response->set_type( request->type() );
+        response->set_protobuf_type( schemas_.descriptor( request->type() )->full_name() );
+        *response->mutable_descriptors() = schemas_.schema( request->type() );
+        return grpc::Status::OK;
+    }
+    catch ( const std::invalid_argument& error ){
+        return { grpc::StatusCode::NOT_FOUND, error.what() };
     }
 }

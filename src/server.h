@@ -1,17 +1,34 @@
-
 #pragma once
 
-#include "configuration.h"
-#include <boost/asio/io_context.hpp>
-
-
-
-//
-class CmdServer;
+#include "adapter.grpc.pb.h"
+#include "rosdata/converter.h"
+#include <rclcpp/rclcpp.hpp>
+#include <map>
+#include <mutex>
 
 //
-namespace Server{
-    void start( boost::asio::io_context& ctx, Configuration const& conf, CmdServer& server );
-    void stop( boost::asio::io_context& ctx );
-    void sendMessage( CmdServer& server, std::string sMessage );
+class AdapterService final : public robotics::ROSAdapter::Service{
+public:
+    explicit AdapterService( rclcpp::Node::SharedPtr node );
+    //
+    grpc::Status ListTopics( grpc::ServerContext*, const robotics::ListTopicsRequest*, robotics::ListTopicsResponse* ) override;
+    grpc::Status Subscribe( grpc::ServerContext*, const robotics::SubscribeRequest*, robotics::Topic* ) override;
+    grpc::Status Unsubscribe( grpc::ServerContext*, const robotics::TopicRequest*, robotics::Topic* ) override;
+    grpc::Status ListSupportedTypes( grpc::ServerContext*, const robotics::ListSupportedTypesRequest*, robotics::ListSupportedTypesResponse* ) override;
+    grpc::Status GetSchema( grpc::ServerContext*, const robotics::SchemaRequest*, robotics::SchemaResponse* ) override;
+    grpc::Status GetLatest( grpc::ServerContext*, const robotics::TopicRequest*, robotics::LatestData* ) override;
+
+private:
+    struct Entry{
+        robotics::Topic topic;
+        robotics::LatestData latest;
+        std::shared_ptr<rosdata::Converter> converter;
+        rclcpp::SubscriptionBase::SharedPtr subscription;
+    };
+
+    void refreshTopics(); // Called with mutex held.
+    rosdata::SchemaRegistry schemas_;
+    rclcpp::Node::SharedPtr node_;
+    std::mutex mutex_;
+    std::map<std::string, std::shared_ptr<Entry>> topics_;
 };
