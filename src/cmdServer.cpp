@@ -2,6 +2,7 @@
 #include "cmdServer.h"
 #include "apicall.h"
 #include "server.h"
+#include <exception>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/int32.hpp>
@@ -34,7 +35,7 @@ namespace{
         }
         //
         void callback(const typename T::SharedPtr msg) const{
-            std::cout << "I heard something." << std::endl;
+            std::cout << "I heard something." << msg << std::endl;
         }
         //
         rclcpp::Node _node;
@@ -78,8 +79,25 @@ void CmdServer::HandleRequest( apiCall call ){
         case robotics::Message::kExitRequest:
             _exit = true;
             break;
+        case robotics::Message::kSubRequest:
+            {
+                auto sub = message.sub_request();
+                //
+                std::string sTopic = sub.topic();
+                std::string sType = sub.type();
+                CreateSubscription( sTopic, sType );
+                break;
+            }
+        case robotics::Message::kUnsubRequest:
+            {
+                auto sub = message.unsub_request();
+                //
+                std::string sTopic = sub.topic();
+                Unsubscription( sTopic );
+                break;
+            }
         default:
-            std::cout << "Unknow command!" << std::endl;
+            std::cout << "Unknow command! " << message.payload_case() << std::endl;
             break;
     }
 }
@@ -122,12 +140,28 @@ void CmdServer::TopicsQuery( apiCall call ){
 }
 //
 void CmdServer::CreateSubscription(std::string sTopic, std::string sType){
-    if ( sType == TYPE_STRING ){
-        std::shared_ptr<Subscribtion> pSub( new TypedSubscribtion<std_msgs::msg::String>( sTopic ) );
-        _Subscribtions[sTopic] = pSub;
+    // TODO: TYPE HANDLING IS NOT DEFINED ENOUGH YET. REFACTOR
+    try{
+        if ( sType == TYPE_STRING ){
+            std::shared_ptr<Subscribtion> pSub( new TypedSubscribtion<std_msgs::msg::String>( sTopic ) );
+            _Subscribtions[sTopic] = pSub;
+        }
+        else if ( sType == TYPE_INT ){
+            std::shared_ptr<Subscribtion> pSub( new TypedSubscribtion<std_msgs::msg::Int32>( sTopic ) );
+            _Subscribtions[sTopic] = pSub;
+        }
     }
-    else if ( sType == TYPE_INT ){
-        std::shared_ptr<Subscribtion> pSub( new TypedSubscribtion<std_msgs::msg::Int32>( sTopic ) );
-        _Subscribtions[sTopic] = pSub;
+    catch( std::exception e ){
+        rcutils_reset_error();
+        std::cout << "Error while trying to subscribe!" << std::endl;
+    }
+}
+
+void CmdServer::Unsubscription( std::string sTopic ){
+    try{
+    }
+    catch( std::exception e ){
+        rcutils_reset_error();
+        std::cout << "Error while trying to subscribe!" << std::endl;
     }
 }

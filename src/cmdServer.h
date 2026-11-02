@@ -26,6 +26,7 @@ public:
     void HandleRequest( apiCall call );
     //
     void CreateSubscription( std::string sTopic, std::string sType );
+    void Unsubscription( std::string sTopic );
     //
     MyChannelType& cmdChannel();
     MyChannelType& dataChannel();
